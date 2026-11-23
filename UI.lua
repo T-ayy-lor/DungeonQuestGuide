@@ -304,6 +304,8 @@ function UI.HideWindow()
     window.byCode = nil
 end
 
+function UI.GetWindow() return window end
+
 function UI.ToggleWindow()
     if window and window:IsShown() then
         window:Hide()
@@ -398,25 +400,32 @@ function UI.Update()
 
     local togo = plan.total - plan.doneCount - #plan.skipped
     window.summary:SetText(("%s%d|r of %d quests picked up or done%s"):format(togo == 0 and GREEN or GOLD,
-        plan.doneCount, plan.total, (#plan.later > 0) and (" · " .. #plan.later .. " for later") or ""))
+        plan.doneCount, plan.total, (#plan.after > 0 and (" · " .. #plan.after .. " after the run") or "")
+        .. ((#plan.later > 0) and (" · " .. #plan.later .. " for later") or "")))
 
     -- No arrow on the step: say why, at the top.
     local note = ns.Guide.ArrowStatus()
     window.arrowNote = note
     if note then Heading("|cffff9933" .. note .. "|r", true) end
 
+    -- Every step is numbered, in the order it's done: out in the world, then
+    -- inside the dungeon, then what carries on after the run. Inside the
+    -- dungeon its own steps come first.
     local inside = ns.InInstance()
-    if #plan.tasks > 0 then
+    local n = 0
+    local function Num(color) n = n + 1 return (color or GREY) .. n .. ". |r" end
+    local function Tasks()
+        if #plan.tasks == 0 then return end
         local TIER_HEADINGS = { "Quest chains first", "Then the dungeon quests out in the world", "Then the dungeon" }
         local lastTier
         if inside then Heading("When you're out again") end
-        for i, task in ipairs(plan.tasks) do
+        for _, task in ipairs(plan.tasks) do
             if not inside and task.tier ~= lastTier then
                 lastTier = task.tier
                 Heading(TIER_HEADINGS[task.tier] or "Steps")
             end
             local current = task == guide.current and not inside
-            local title = (current and GREEN .. "> |r" or (GREY .. i .. ". |r")) .. (current and WHITE or GOLD) .. task.title .. "|r"
+            local title = (current and (GREEN .. "> |r" .. Num(GREEN)) or Num()) .. (current and WHITE or GOLD) .. task.title .. "|r"
             local detail = task.detail or ""
             if task.forQuests[1] and task.forQuests[1] ~= task.questName then
                 detail = "for " .. task.forQuests[1] .. (detail ~= "" and (" · " .. detail) or "")
@@ -427,16 +436,25 @@ function UI.Update()
             Row(task, title, GREY .. detail .. "|r", task.icon, current)
         end
     end
-    if #plan.inside > 0 then
-        Heading("Inside the dungeon")
-        for _, entry in ipairs(plan.inside) do
-            Row(entry, GOLD .. entry.title .. "|r", GREY .. (entry.detail or "") .. "|r", entry.icon)
+    local function Inside()
+        if #plan.inside > 0 then
+            Heading("Inside the dungeon")
+            for _, entry in ipairs(plan.inside) do
+                Row(entry, Num() .. GOLD .. entry.title .. "|r", GREY .. (entry.detail or "") .. "|r", entry.icon)
+            end
+        end
+        if #plan.have > 0 then
+            Heading("In your quest log")
+            for _, entry in ipairs(plan.have) do
+                Row(entry, Num() .. WHITE .. entry.name .. "|r", GREY .. (entry.detail or "") .. "|r", ns.ICONS.objective)
+            end
         end
     end
-    if #plan.have > 0 then
-        Heading("In your quest log")
-        for _, entry in ipairs(plan.have) do
-            Row(entry, WHITE .. entry.name .. "|r", GREY .. (entry.detail or "") .. "|r", ns.ICONS.objective)
+    if inside then Inside() Tasks() else Tasks() Inside() end
+    if #plan.after > 0 then
+        Heading("After the dungeon")
+        for _, entry in ipairs(plan.after) do
+            Row(entry, Num() .. GOLD .. entry.title .. "|r", GREY .. (entry.why or "") .. "|r", entry.icon)
         end
     end
     if #plan.later > 0 then

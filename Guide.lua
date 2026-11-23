@@ -159,8 +159,9 @@ local function RefreshNow(force)
     if #plan.tasks == 0 and #plan.have == 0 and #plan.inside == 0 then
         if announced ~= dungeon then
             announced = dungeon
+            local waiting = #plan.later + #(plan.after or {})
             ns.Print(("Nothing left to pick up for %s right now%s."):format(dungeon,
-                #plan.later > 0 and (" (" .. #plan.later .. " for later)") or ""))
+                waiting > 0 and (" (" .. waiting .. " for later)") or ""))
         end
     else
         announced = nil

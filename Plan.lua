@@ -45,6 +45,96 @@ local function DropsInside(q, data)
     return false
 end
 
+-- Where an item that starts a quest drops: this dungeon first, then any
+-- other. Its source names the dungeon ("Dropped by Dark Iron dwarves in
+-- Gnomeregan") or one of its bosses ("Looted from Edwin VanCleef"), or a
+-- boss's loot has it. A source that says outside, near or entrance is out in
+-- the world. nil: not in a dungeon.
+local function BareName(name)
+    local bare = name:lower()
+    return ((bare:match("^(.-):") or bare):gsub("^the ", ""))
+end
+
+local function DropsIn(id, source, name, d)
+    if type(d) ~= "table" or d.questChainPage then return false end
+    if source ~= "" then
+        local bare = BareName(name)
+        if #bare > 3 and source:find(bare, 1, true) then return true end
+    end
+    for _, boss in ipairs(type(d.bosses) == "table" and d.bosses or {}) do
+        if type(boss) == "table" then
+            local bossName = type(boss.name) == "string" and boss.name or ""
+            if source ~= "" and #bossName > 3 and bossName ~= "Trash Drops" and source:find(bossName:lower(), 1, true) then
+                return true
+            end
+            for _, loot in ipairs(type(boss.loot) == "table" and boss.loot or {}) do
+                if type(loot) == "table" and loot[1] == id then return true end
+            end
+        end
+    end
+    return false
+end
+
+local function ItemDropDungeon(item, dungeon)
+    local id = type(item) == "table" and item[1]
+    if not id then return nil end
+    local FDJ = ns.FDJ() or {}
+    local db = type(FDJ.DB) == "table" and FDJ.DB or {}
+    local source = Lower(item[4])
+    if source:find("outside", 1, true) or source:find("near ", 1, true) or source:find("entrance", 1, true) then
+        source = ""
+    end
+    if dungeon and DropsIn(id, source, dungeon, db[dungeon]) then return dungeon end
+    local names = {}
+    for name in pairs(db) do names[#names + 1] = name end
+    table.sort(names)
+    for _, name in ipairs(names) do
+        if name ~= dungeon and DropsIn(id, source, name, db[name]) then return name end
+    end
+    return nil
+end
+ns.ItemDropDungeon = ItemDropDungeon
+
+-- The dungeon a text names ("Vaelan, Lower Blackrock Spire", "enter
+-- Blackrock Depths", "Slay Overlord Wyrmthalak"): this one when it names it
+-- or one of its bosses, else the other one with the longest name (or boss
+-- name) it contains. nil: names none.
+local function Names(t, name, d)
+    local longest = 0
+    local bare = BareName(name)
+    if #bare > 3 and t:find(bare, 1, true) then longest = #bare end
+    for _, boss in ipairs(type(d) == "table" and type(d.bosses) == "table" and d.bosses or {}) do
+        local bossName = type(boss) == "table" and type(boss.name) == "string" and boss.name:lower() or ""
+        if #bossName > 3 and bossName ~= "trash drops" and #bossName > longest and t:find(bossName, 1, true) then
+            longest = #bossName
+        end
+    end
+    return longest
+end
+
+local function NamesDungeon(text, dungeon)
+    local t = Lower(text)
+    if t == "" then return nil end
+    local FDJ = ns.FDJ() or {}
+    local db = type(FDJ.DB) == "table" and FDJ.DB or {}
+    if dungeon and Names(t, dungeon, db[dungeon]) > 0 then return dungeon end
+    local best, bestLen = nil, 0
+    for name, d in pairs(db) do
+        if name ~= dungeon and type(d) == "table" and not d.questChainPage then
+            local len = Names(t, name, d)
+            if len > bestLen or (len > 0 and len == bestLen and name < best) then best, bestLen = name, len end
+        end
+    end
+    -- for saying so: "Scarlet Monastery", not one wing picked at random
+    local said = best
+    -- (but "Stratholme: Living" from Stratholme: Undead)
+    if best and best:find(":", 1, true) and not t:find(best:lower(), 1, true)
+        and not (dungeon and BareName(dungeon) == BareName(best)) then
+        said = best:match("^(.-):")
+    end
+    return best, said
+end
+
 -- A quest this character can ever do (faction, class, profession, race, not
 -- a hidden follow-up or a repeatable).
 function ns.QuestForCharacter(q)
@@ -219,9 +309,12 @@ local function NewTask(kind, questID, name, fields)
     return t
 end
 
--- One chain step's tasks. false + why when the chain can't go on before the
--- run (a level too low, a step that starts or is done inside a dungeon).
-local function StepTasks(step, others, add, level, nextQ)
+-- One chain step's tasks. When the chain can't go on before the run:
+-- false, why, then after = true when it carries on once the dungeon is done
+-- (a step that starts or is done inside it, an item that drops there) and
+-- what to do inside for it ({ title, detail, itemID }); after = nil when it
+-- waits on something else (a level, an item from another dungeon).
+local function StepTasks(step, others, add, level, nextQ, dungeon)
     local function addChain(t) t.tier = ns.TIER_CHAIN return add(t) end
     local det = Details(step.id)
     local name = step.name or det.name or ("Quest " .. tostring(step.id))
@@ -229,9 +322,26 @@ local function StepTasks(step, others, add, level, nextQ)
     local pickup = (faction == "Alliance" and det.pickupAlliance) or (faction == "Horde" and det.pickupHorde) or det.pickup
     local inLog = ns.InLog(step.id)
     local orText = (#others > 0) and ("or: " .. table.concat(others, ", ")) or nil
+    local item = det.startItem
+    local itemID = type(item) == "table" and item[1] or nil
 
-    if (step.startsInDungeon or det.startsInDungeon) and not inLog then
-        return false, name .. " starts inside the dungeon"
+    if not inLog and not (itemID and ns.ItemCount(itemID) > 0) then
+        if step.startsInDungeon or det.startsInDungeon or SaysInside(pickup) then
+            local where, said = NamesDungeon(pickup, dungeon)
+            if where and where ~= dungeon then
+                return false, ("first %s, in %s"):format(name, said)
+            end
+            return false, name .. " starts inside the dungeon", true,
+                { title = (step.itemStep and "Get inside: " or "Pick up inside: ") .. name, detail = pickup, itemID = itemID }
+        end
+        local where = ItemDropDungeon(item, dungeon)
+        if where == dungeon then
+            local what = tostring(item[2] or name)
+            return false, what .. " drops in the dungeon", true,
+                { title = "Loot: " .. what, detail = tostring(item[4] or pickup or ""), itemID = itemID }
+        elseif where then
+            return false, ("first %s, from %s"):format(tostring(item[2] or name), where)
+        end
     end
     if not inLog and tonumber(det.requires) and level < tonumber(det.requires) then
         return false, ("level %d for %s"):format(tonumber(det.requires), name)
@@ -267,12 +377,27 @@ local function StepTasks(step, others, add, level, nextQ)
 
     if not ns.Complete(step.id) then
         if det.objectiveInDungeon or step.needsDungeon then
-            return false, name .. " is done inside a dungeon"
+            local where, said = NamesDungeon(det.objective, dungeon)
+            if not where then where, said = NamesDungeon(det.turnin, dungeon) end
+            if where and where ~= dungeon then
+                return false, ("%s is done in %s"):format(name, said)
+            end
+            return false, name .. " is done inside the dungeon", true,
+                { title = "Do inside: " .. name, detail = det.objective }
         end
         if NeedsObjectiveStep(det, step.id) then
             addChain(NewTask("objective", step.id, name, { spot = ObjectiveSpot(step.id, det),
                 title = "Do: " .. name, detail = det.objective }))
         end
+    end
+    -- handed in inside ("The Sparklematic 5200, inside Gnomeregan")
+    if SaysInside(det.turnin) and not Lower(det.turnin):find("outside", 1, true) then
+        local where, said = NamesDungeon(det.turnin, dungeon)
+        if where and where ~= dungeon then
+            return false, ("%s is handed in in %s"):format(name, said)
+        end
+        return false, name .. " is handed in inside the dungeon", true,
+            { title = "Hand in inside: " .. name, detail = det.turnin }
     end
     local spot, detail = TurnInSpot(stepQ), det.turnin
     if not spot and not det.turnin and nextQ then
@@ -292,7 +417,7 @@ local function StepTasks(step, others, add, level, nextQ)
     return true
 end
 
-local function ChainTasks(q, add, level)
+local function ChainTasks(q, add, level, dungeon)
     local chain = ChainOf(q)
     if type(chain) ~= "table" then return true end
     local last = PrereqEnd(q, chain)
@@ -316,8 +441,8 @@ local function ChainTasks(q, add, level)
                 local d = Details(after.id)
                 nextQ = { id = after.id, pickup = d.pickup, startMap = d.map }
             end
-            local ok, why = StepTasks(chain[pick], others, add, level, nextQ)
-            if not ok then return false, why end
+            local ok, why, afterRun, inside = StepTasks(chain[pick], others, add, level, nextQ, dungeon)
+            if not ok then return false, why, afterRun, inside end
         end
         i = stop + 1
     end
@@ -418,13 +543,13 @@ end
 function ns.BuildPlan(dungeon, skip)
     local FDJ = ns.FDJ() or {}
     local data = FDJ.DB and FDJ.DB[dungeon]
-    local plan = { dungeon = dungeon, tasks = {}, inside = {}, later = {}, have = {}, ready = {}, skipped = {},
+    local plan = { dungeon = dungeon, tasks = {}, inside = {}, after = {}, later = {}, have = {}, ready = {}, skipped = {},
         doneCount = 0, total = 0 }
     if type(data) ~= "table" then return plan end
     plan.icon = data.icon
     skip = skip or {}
     local level = ns.PlayerLevel()
-    local all, byKey = {}, {}
+    local all, byKey, insideKeys = {}, {}, {}
 
     for _, q in ipairs(ns.DungeonQuests(dungeon)) do
         local name = q.name or ("Quest " .. q.id)
@@ -469,15 +594,37 @@ function ns.BuildPlan(dungeon, skip)
         elseif tonumber(q.requires) and level < tonumber(q.requires) then
             plan.later[#plan.later + 1] = { quest = q, name = name, why = "needs level " .. tonumber(q.requires) }
         else
-            local ok, why = ChainTasks(q, add, level)
+            local ok, why, afterRun, insideStep = ChainTasks(q, add, level, dungeon)
             local startItem = type(q.startItem) == "table" and q.startItem[1] or nil
-            if not ok then
-                plan.later[#plan.later + 1] = { quest = q, name = name, why = "after the run: " .. why }
+            local dropsElsewhere = startItem and ns.ItemCount(startItem) == 0 and not DropsInside(q, data)
+                and ItemDropDungeon(q.startItem, dungeon)
+            if dropsElsewhere == dungeon then dropsElsewhere = nil end
+            if not ok and afterRun then
+                -- carries on once the dungeon is done: last, after the run
+                plan.after[#plan.after + 1] = { quest = q, name = name, why = why, title = "After the run: " .. name,
+                    icon = ns.ICONS.pickup }
+                if insideStep then
+                    local key = insideStep.itemID or insideStep.title
+                    if not insideKeys[key] then
+                        insideKeys[key] = true
+                        local detail = insideStep.detail and insideStep.detail ~= "" and (insideStep.detail .. " · ") or ""
+                        plan.inside[#plan.inside + 1] = { quest = q, name = name, title = insideStep.title,
+                            detail = insideStep.title:find(name, 1, true) and (insideStep.detail or "")
+                                or (detail .. "leads to " .. name), itemID = insideStep.itemID,
+                            icon = insideStep.itemID and ns.ICONS.item or ns.ICONS.objective }
+                    end
+                end
+            elseif not ok then
+                plan.later[#plan.later + 1] = { quest = q, name = name, why = why }
+            elseif dropsElsewhere then
+                plan.later[#plan.later + 1] = { quest = q, name = name,
+                    why = ("first %s, from %s"):format(tostring(q.startItem[2] or "its item"), dropsElsewhere) }
             elseif startItem and ns.ItemCount(startItem) > 0 then
                 -- the item that starts it is already in the bags (wherever it drops)
                 add(NewTask("useitem", q.id, name, { itemID = startItem, main = true,
                     title = "Use " .. tostring(q.startItem[2] or "the item") .. " in your bags", detail = "Starts " .. name }))
-            elseif q.startsInDungeon or SaysInside(q.pickup) or (startItem and DropsInside(q, data)) then
+            elseif q.startsInDungeon or SaysInside(q.pickup) or (startItem and (DropsInside(q, data)
+                or ItemDropDungeon(q.startItem, dungeon) == dungeon)) then
                 plan.inside[#plan.inside + 1] = { quest = q, name = name, title = "Pick up inside: " .. name,
                     detail = q.pickup, icon = ns.ICONS.pickup, itemID = type(q.startItem) == "table" and q.startItem[1] or nil }
             elseif startItem then

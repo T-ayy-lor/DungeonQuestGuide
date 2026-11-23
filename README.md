@@ -8,11 +8,14 @@ The guide is off whenever you log in: no arrow, pin or window until you pick a d
 
 Click the minimap button or type `/dqg` to open the dungeon list: every dungeon with quests for your character, by level, with its level range, its bosses' levels and how many quests you can take there. Click a dungeon to start its guide.
 
-The guide lists the steps in this order:
+The guide numbers the steps in the order you do them:
 
 1. **Quest chains first:** every step of every prerequisite chain.
 2. **Then the dungeon quests out in the world.**
-3. **Then the dungeon:** the entrance, with the quests picked up inside listed under it.
+3. **Then the dungeon:** the entrance, and what to do inside (quests picked up inside, items to loot that start a quest, chain steps done or handed in inside).
+4. **After the dungeon:** quests whose chain carries on from something inside, like a quest started by an item that drops there. They come last, because you can't start them before the run.
+
+A chain that starts in another dungeon (an item another dungeon drops) is listed under "Not yet", with where it comes from.
 
 Within each part, the nearest step comes next. Steps tick themselves off as you pick quests up and hand them in. The Dungeon Journal's arrow leads to the step you're on, whether that's a quest giver or a quest area (where the mobs to kill or the things to collect are), and TomTom adds a map and minimap pin.
 
