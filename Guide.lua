@@ -150,7 +150,11 @@ local function RefreshNow(force)
     if Guide.focusKey then
         local found
         for _, t in ipairs(plan.tasks) do
-            if t.key == Guide.focusKey then found = t break end
+            -- a row of several steps at one person: any of them
+            for _, s in ipairs(t.group or { t }) do
+                if s.key == Guide.focusKey then found = t break end
+            end
+            if found then break end
         end
         if found then current = found else Guide.focusKey = nil end
     end

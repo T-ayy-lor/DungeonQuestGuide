@@ -459,6 +459,32 @@ end
 ns.costCache = {}
 function ns.ClearCostCache() ns.costCache = {} end
 
+-- Pick-ups and hand-ins: steps done by talking to someone.
+local TALK = { pickup = true, turnin = true }
+-- "A few steps away", in map widths: Menethil Harbor's quest givers are
+-- within 0.05 of each other on the Wetlands map.
+ns.NEARBY = 0.06
+
+-- Two talking steps at the same person: the same name ("Rethiel the
+-- Greenwarden, Wetlands" and "Rethiel the Greenwarden, The Green Belt,
+-- Wetlands"), not far apart; or, with no name to go by, the same spot.
+local function SameNpc(a, b)
+    if not (a and b and TALK[a.kind] and TALK[b.kind]) then return false end
+    local sa, sb = a.spot, b.spot
+    local close
+    if sa and sb then
+        if sa.mapID ~= sb.mapID then return false end
+        local dx, dy = (sa.x or 0) - (sb.x or 0), (sa.y or 0) - (sb.y or 0)
+        local d = dx * dx + dy * dy
+        if d > 0.03 * 0.03 then return false end
+        close = d <= 0.01 * 0.01
+    end
+    local na, nb = ns.NpcName(a.detail), ns.NpcName(b.detail)
+    if na and nb and not na:find("^probably") and not nb:find("^probably") then return na == nb end
+    return close == true
+end
+ns.SameNpc = SameNpc
+
 local function Order(tasks)
     local placed, out = {}, {}
     local pos, lastKey
@@ -480,9 +506,28 @@ local function Order(tasks)
         end
         return true
     end
+    local last
     for _ = 1, #tasks do
         local best, bestTier, bestCost
+        -- Whatever else is to do at the person just talked to, now, before
+        -- any tier: hand in one chain step, take the next (or the dungeon's
+        -- own quest) there and then, never on a second trip. Then anyone a
+        -- few steps away (the same town), nearest first.
+        local here = last and last.spot
         for _, t in ipairs(tasks) do
+            if not placed[t.key] and Ready(t) and TALK[t.kind] then
+                local near
+                if SameNpc(t, last) then
+                    near = -1
+                elseif here and t.spot and t.spot.mapID == here.mapID then
+                    local dx, dy = t.spot.x - here.x, t.spot.y - here.y
+                    local d = math.sqrt(dx * dx + dy * dy)
+                    if d <= ns.NEARBY then near = d end
+                end
+                if near and (not best or near < bestCost) then best, bestTier, bestCost = t, t.tier or ns.TIER_OUTSIDE, near end
+            end
+        end
+        for _, t in ipairs(best and {} or tasks) do
             if not placed[t.key] and Ready(t) then
                 local cost
                 if t.spot then
@@ -501,7 +546,7 @@ local function Order(tasks)
         if not best then break end
         placed[best.key] = true
         out[#out + 1] = best
-        lastKey = best.key
+        lastKey, last = best.key, best
         if best.spot then pos = best.spot end
     end
     for _, t in ipairs(tasks) do -- a loop in the data: never lose a task
@@ -510,6 +555,60 @@ local function Order(tasks)
     return out
 end
 ns.OrderTasks = Order
+
+-- "A", "A and B", "A, B and C"
+local function List(names)
+    if #names <= 1 then return names[1] or "" end
+    return table.concat(names, ", ", 1, #names - 1) .. " and " .. names[#names]
+end
+
+-- Steps one after another at the same person are one step: "Hand in
+-- Tramping Paws, pick up Fire Taboo". The first step stands for them all
+-- (its spot, key and quest); t.group lists them.
+local function Group(tasks)
+    local out = {}
+    local i = 1
+    while i <= #tasks do
+        local t = tasks[i]
+        local j = i
+        -- never "pick up X, hand in X" in one row: something comes between
+        local took = {}
+        if t.kind == "pickup" then took[t.questID] = true end
+        while tasks[j + 1] and SameNpc(t, tasks[j + 1])
+            and not (tasks[j + 1].kind == "turnin" and took[tasks[j + 1].questID]) do
+            j = j + 1
+            if tasks[j].kind == "pickup" then took[tasks[j].questID] = true end
+        end
+        if j > i then
+            local group, parts, has, handed = {}, {}, {}, {}
+            for _, q in ipairs(t.forQuests) do has[q] = true end
+            for k = i, j do
+                local s = tasks[k]
+                group[#group + 1] = s
+                local v = s.kind == "turnin" and "hand in" or "pick up"
+                if not parts[#parts] or parts[#parts].verb ~= v then parts[#parts + 1] = { verb = v, names = {} } end
+                -- a chain whose parts share one name: "Hand in X, pick up the next part"
+                table.insert(parts[#parts].names, (v == "pick up" and handed[s.questName]) and "the next part" or s.questName)
+                if v == "hand in" then handed[s.questName] = true end
+                if k > i then
+                    for _, q in ipairs(s.forQuests) do
+                        if not has[q] then has[q] = true t.forQuests[#t.forQuests + 1] = q end
+                    end
+                    if s.note then t.note = (t.note and (t.note .. "\n") or "") .. s.note end
+                end
+            end
+            local words = {}
+            for _, p in ipairs(parts) do words[#words + 1] = p.verb .. " " .. List(p.names) end
+            local title = table.concat(words, ", ")
+            t.title = title:sub(1, 1):upper() .. title:sub(2)
+            t.group = group
+        end
+        out[#out + 1] = t
+        i = j + 1
+    end
+    return out
+end
+ns.GroupTasks = Group
 
 ------------------------------------------------------------------ the plan
 
@@ -653,6 +752,6 @@ function ns.BuildPlan(dungeon, skip)
         all[#all + 1] = entrance
     end
 
-    plan.tasks = Order(all)
+    plan.tasks = Group(Order(all))
     return plan
 end

@@ -420,7 +420,8 @@ function UI.Update()
         local lastTier
         if inside then Heading("When you're out again") end
         for _, task in ipairs(plan.tasks) do
-            if not inside and task.tier ~= lastTier then
+            -- a quest taken early, at someone on the way, stays under the heading it's done in
+            if not inside and (not lastTier or task.tier > lastTier) then
                 lastTier = task.tier
                 Heading(TIER_HEADINGS[task.tier] or "Steps")
             end
