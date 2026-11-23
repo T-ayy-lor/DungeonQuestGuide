@@ -29,9 +29,9 @@ Within each part, the nearest step comes next. Steps tick themselves off as you 
 
 Copy the `DungeonQuestGuide` folder into your WoW `Interface/AddOns` folder, then restart the game.
 
-## Note
+## Feedback
 
-This is an early version. Report anything that guides you wrong.
+Anything that guides you wrong: open an issue on GitHub.
 
 ## License
 
