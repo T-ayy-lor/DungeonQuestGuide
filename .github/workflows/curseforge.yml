@@ -1,0 +1,52 @@
+# When a release is published on GitHub, its zip goes to CurseForge too.
+name: Upload to CurseForge
+on:
+  release:
+    types: [published]
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the zip (unzips to a DungeonQuestGuide folder) and attach it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/DungeonQuestGuide dist
+          git archive HEAD | tar -x -C build/DungeonQuestGuide
+          rm -rf build/DungeonQuestGuide/.github build/DungeonQuestGuide/.gitattributes
+          (cd build && zip -qr "../dist/DungeonQuestGuide-${TAG#v}.zip" DungeonQuestGuide)
+          gh release upload "$TAG" dist/*.zip --repo "$GITHUB_REPOSITORY" --clobber
+      - name: Upload to CurseForge
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+          NOTES: ${{ github.event.release.body }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+          PROJECT: "1825320"
+          GAME_VERSION: "1.60.1"
+          ADDON: "Dungeon Quest Guide"
+        run: |
+          set -euo pipefail
+          file=$(ls dist/*.zip | head -1)
+          api=https://wow.curseforge.com/api
+          # CurseForge wants the game version's id: look it up by its name.
+          curl -sS --fail -H "X-Api-Token: $CF_API_TOKEN" "$api/game/versions" -o versions.json
+          ids=$(jq -c --arg v "$GAME_VERSION" '[.[] | select(.name == $v) | .id]' versions.json)
+          if [ "$ids" = "[]" ]; then
+            echo "CurseForge has no game version named $GAME_VERSION. Names starting with 1.:"
+            jq -r '.[] | select(.name | startswith("1.")) | "\(.id)  \(.name)"' versions.json
+            exit 1
+          fi
+          type=release
+          if [ "$PRERELEASE" = "true" ]; then type=beta; fi
+          if [ -z "$NOTES" ]; then NOTES="See the release on GitHub."; fi
+          metadata=$(jq -n --arg c "$NOTES" --arg t "$type" --arg n "$ADDON ${TAG#v}" --argjson g "$ids" \
+            '{changelog: $c, changelogType: "markdown", displayName: $n, releaseType: $t, gameVersions: $g}')
+          curl -sS --fail-with-body -H "X-Api-Token: $CF_API_TOKEN" \
+            --form-string "metadata=$metadata" -F "file=@$file" \
+            "$api/projects/$PROJECT/upload-file"
