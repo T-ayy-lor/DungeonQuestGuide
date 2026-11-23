@@ -186,6 +186,7 @@ function Guide.Start(dungeon)
     if not (dungeon and FDJ and FDJ.DB and FDJ.DB[dungeon]) then return end
     local char = ns.CharDB()
     char.active = dungeon
+    char.lastActive = dungeon -- for the minimap button's right-click (back on)
     char.windowShown = true
     Guide.focusKey = nil
     announced = nil
@@ -202,7 +203,7 @@ function Guide.Stop()
     char.windowShown = nil
     Guide.plan, Guide.current, Guide.focusKey = nil, nil, nil
     ClearArrows()
-    if ns.UI then ns.UI.HideWindow() ns.UI.UpdateJournalButton() end
+    if ns.UI then ns.UI.HideWindow() ns.UI.UpdateJournalButton() ns.UI.UpdateMinimapIcon() end
 end
 
 -- Point at another step until it is done (a click on its row). A click on the

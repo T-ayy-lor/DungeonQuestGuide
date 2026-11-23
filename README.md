@@ -19,6 +19,7 @@ If there's no arrow on the step, the window says why at the top (right-clicked a
 - Click a step to point the arrow at it instead, or to bring back an arrow you hid.
 - Right-click a quest to leave it out (or put it back).
 - "All dungeons" / "Back to guide" switches between the list and the guide without stopping it.
+- **Right-click the minimap button to turn the guide off:** the arrow, the map pin and the window go away, and the icon goes grey. Right-click again to turn it back on with the same dungeon. (The window's "Turn off" button does the same.)
 - `/dqg <dungeon>` starts a dungeon directly (short names work too: `/dqg dm`, `/dqg sfk`). `/dqg stop` stops the guide.
 
 ## Requirements

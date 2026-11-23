@@ -253,7 +253,7 @@ local function Build()
     local stop = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     stop:SetSize(90, 22)
     stop:SetPoint("BOTTOMRIGHT", -12, 7)
-    stop:SetText("Stop guide")
+    stop:SetText("Turn off")
     stop:SetScript("OnClick", function() ns.Guide.Stop() end)
     frame.stop = stop
 
@@ -316,6 +316,7 @@ end
 
 function UI.Update()
     UI.UpdateJournalButton()
+    UI.UpdateMinimapIcon()
     if not (window and window:IsShown()) then return end
     local guide = ns.Guide
     local plan = guide.plan
@@ -584,12 +585,50 @@ local MINIMAP_ICON = "Interface\\Icons\\INV_Misc_Map_01"
 local function MinimapTooltip(tip)
     tip:AddLine("Dungeon Quest Guide")
     local dungeon = ns.Guide.Active()
+    local last = ns.CharDB().lastActive
     if dungeon then
         tip:AddLine("Guiding: " .. dungeon, 1, 1, 1)
         local current = ns.Guide.current
         if current and current.title then tip:AddLine("Next: " .. current.title, 1, 1, 1, true) end
+    else
+        tip:AddLine("Off", 0.6, 0.6, 0.6)
     end
     tip:AddLine("Click: show or hide the dungeon list and the guide.", 0.8, 0.8, 0.8, true)
+    if dungeon then
+        tip:AddLine("Right-click: turn it off (the arrow and the window go away).", 0.8, 0.8, 0.8, true)
+    elseif last then
+        tip:AddLine("Right-click: turn it back on (" .. last .. ").", 0.8, 0.8, 0.8, true)
+    end
+end
+
+-- Left: the window. Right: the guide off (arrows, pin and window away), or
+-- back on with the dungeon it was on.
+function UI.MinimapClick(button)
+    if button == "RightButton" then
+        local dungeon = ns.Guide.Active()
+        if dungeon then
+            ns.Guide.Stop()
+            ns.Print("off.")
+        else
+            local last = ns.CharDB().lastActive
+            if last then ns.Guide.Start(last) else UI.ShowWindow("list") end
+        end
+    else
+        UI.ToggleWindow()
+    end
+    if GameTooltip and GameTooltip.Hide then GameTooltip:Hide() end
+end
+
+-- The icon goes grey while the guide is off.
+local minimapIcon
+function UI.UpdateMinimapIcon()
+    local tex = minimapIcon
+    if not tex then
+        local dbIcon = LibStub and LibStub("LibDBIcon-1.0", true)
+        local button = dbIcon and dbIcon.GetMinimapButton and ns.Try(dbIcon.GetMinimapButton, dbIcon, "DungeonQuestGuide")
+        tex = button and button.icon
+    end
+    if tex and tex.SetDesaturated then tex:SetDesaturated(not ns.Guide.Active()) end
 end
 
 local minimapButton
@@ -604,12 +643,16 @@ function UI.MakeMinimapButton()
         local ok = pcall(function()
             local object = broker:NewDataObject("DungeonQuestGuide", {
                 type = "launcher", text = "Dungeon Quest Guide", icon = MINIMAP_ICON,
-                OnClick = function() UI.ToggleWindow() end,
+                OnClick = function(_, button) UI.MinimapClick(button) end,
                 OnTooltipShow = MinimapTooltip,
             })
             dbIcon:Register("DungeonQuestGuide", object, db.minimap)
         end)
-        if ok then minimapButton = "LibDBIcon" return minimapButton end
+        if ok then
+            minimapButton = "LibDBIcon"
+            UI.UpdateMinimapIcon()
+            return minimapButton
+        end
     end
     if not Minimap then return nil end
     -- A plain round button on the minimap's edge.
@@ -629,14 +672,16 @@ function UI.MakeMinimapButton()
     local radius = ((Minimap.GetWidth and Minimap:GetWidth()) or 140) / 2 + 5
     local a = math.rad(200)
     b:SetPoint("CENTER", Minimap, "CENTER", math.cos(a) * radius, math.sin(a) * radius)
-    b:SetScript("OnClick", function() UI.ToggleWindow() end)
+    b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    b:SetScript("OnClick", function(_, button) UI.MinimapClick(button) end)
     b:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         MinimapTooltip(GameTooltip)
         GameTooltip:Show()
     end)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    minimapButton = b
+    minimapButton, minimapIcon = b, icon
+    UI.UpdateMinimapIcon()
     return b
 end
 
