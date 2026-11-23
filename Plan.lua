@@ -128,8 +128,17 @@ ns.StartSpot, ns.TurnInSpot = StartSpot, TurnInSpot
 -- An objective that is only "go and talk to someone / bring this there" is
 -- done by the hand-in itself: no step of its own.
 local DELIVERY = { "speak", "talk", "report", "bring", "take ", "deliver", "return", "go to", "travel", "meet", "seek", "find " }
-local function NeedsObjectiveStep(details)
-    if ns.ValidSpot(details.objectiveMap) then return true end
+-- Where the objective is done: the journal's own spot, else QuestieDB's area.
+local function ObjectiveSpot(questID, details)
+    if ns.ValidSpot(details.objectiveMap) then return details.objectiveMap end
+    return ns.QuestieAreaSpot(questID)
+end
+ns.ObjectiveSpot = ObjectiveSpot
+
+-- QuestieDB knowing where it's done settles it ("Bring 8 Gnoll Paws to..."
+-- is collecting first, whatever the verb).
+local function NeedsObjectiveStep(details, questID)
+    if ObjectiveSpot(questID, details) then return true end
     local t = Lower(details.objective)
     if t == "" then return false end
     for _, verb in ipairs(DELIVERY) do
@@ -260,8 +269,8 @@ local function StepTasks(step, others, add, level, nextQ)
         if det.objectiveInDungeon or step.needsDungeon then
             return false, name .. " is done inside a dungeon"
         end
-        if NeedsObjectiveStep(det) then
-            addChain(NewTask("objective", step.id, name, { spot = ns.ValidSpot(det.objectiveMap) and det.objectiveMap or nil,
+        if NeedsObjectiveStep(det, step.id) then
+            addChain(NewTask("objective", step.id, name, { spot = ObjectiveSpot(step.id, det),
                 title = "Do: " .. name, detail = det.objective }))
         end
     end

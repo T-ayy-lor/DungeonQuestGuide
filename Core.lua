@@ -143,11 +143,38 @@ end
 
 ------------------------------------------------------------------ QuestieDB fallback
 
+-- QuestieDB keeps its area -> map tables as Lua source ("return {...}") until
+-- something compiles them; a table if Questie already has.
+local zoneTables = {}
+local function ZoneTable(private, field)
+    local t = zoneTables[field]
+    if t ~= nil then return t or nil end
+    local value = private[field]
+    if type(value) == "string" then
+        local compile = _G.loadstring or load
+        local chunk = compile and compile(value)
+        local ok, result = false, nil
+        if chunk then ok, result = pcall(chunk) end
+        value = ok and result or nil
+    end
+    zoneTables[field] = type(value) == "table" and value or false
+    return zoneTables[field] or nil
+end
+
 local function QuestieZoneMap(areaID)
     local lib = _G.LibQuestieDB
     local support = lib and lib.Support and ns.Try(lib.Support.Get, "ZoneDB")
-    local map = support and support.private and support.private.areaIdToUiMapId
-    return type(map) == "table" and map[areaID] or nil
+    local private = type(support) == "table" and type(support.private) == "table" and support.private
+    if not private then return nil end
+    -- the overrides first: 0 there means "no map" (the Deeprun Tram)
+    local override = ZoneTable(private, "areaIdToUiMapIdOverride")
+    local map = override and override[areaID]
+    if map == nil then
+        local main = ZoneTable(private, "areaIdToUiMapId")
+        map = main and main[areaID]
+    end
+    map = tonumber(map)
+    return map and map > 0 and map or nil
 end
 
 -- The first spawn of an NPC or object in QuestieDB, as a journal-style spot.
@@ -186,6 +213,157 @@ function ns.QuestieSpot(questID, field)
         if spot then return spot end
     end
     return nil
+end
+
+------------------------------------------------------------------ quest areas (QuestieDB)
+
+-- Every spawn of an NPC or object, as {mapID, x, y, name} (0-1 map units).
+local function AllSpawns(kind, id, out, cap)
+    local lib = _G.LibQuestieDB
+    local entity = lib and lib[kind]
+    if not (entity and entity.Get) then return end
+    local spawns = ns.Try(entity.Get, id, "spawns")
+    if type(spawns) ~= "table" then return end
+    local name = ns.Try(entity.Get, id, "name")
+    for areaID, list in pairs(spawns) do
+        local mapID = QuestieZoneMap(areaID)
+        if mapID and type(list) == "table" then
+            for _, p in ipairs(list) do
+                if #out >= cap then return end
+                local x, y = type(p) == "table" and tonumber(p[1]), type(p) == "table" and tonumber(p[2])
+                if x and y and x > 0 and y > 0 and x < 100 and y < 100 then
+                    out[#out + 1] = { mapID, x / 100, y / 100, type(name) == "string" and name or nil }
+                end
+            end
+        end
+    end
+end
+
+-- A spawn list straight from the quest ({[areaID] = {{x, y}, ...}}).
+local function ListSpawns(spawns, name, out, cap)
+    if type(spawns) ~= "table" then return end
+    for areaID, list in pairs(spawns) do
+        local mapID = QuestieZoneMap(areaID)
+        if mapID and type(list) == "table" then
+            for _, p in ipairs(list) do
+                if #out >= cap then return end
+                local x, y = type(p) == "table" and tonumber(p[1]), type(p) == "table" and tonumber(p[2])
+                if x and y and x > 0 and y > 0 and x < 100 and y < 100 then
+                    out[#out + 1] = { mapID, x / 100, y / 100, name }
+                end
+            end
+        end
+    end
+end
+
+-- Instance and micro maps (a cave's own map) don't take an arrow: the zone's do.
+local function OutdoorMap(mapID)
+    if not (C_Map and C_Map.GetMapInfo) then return true end
+    local info = ns.Try(C_Map.GetMapInfo, mapID)
+    if type(info) ~= "table" or not info.mapType then return true end
+    return info.mapType ~= 4 -- Enum.UIMapType.Dungeon
+end
+
+-- Where a quest's objectives are done (the mobs to kill, the things to use,
+-- where its items drop, the place to explore): the thickest cluster of their
+-- spawns, as a journal-style spot. nil when QuestieDB has none.
+local CAP, RADIUS = 600, 0.06
+local areaCache = {}
+function ns.QuestieAreaSpot(questID)
+    if not questID then return nil end
+    if areaCache[questID] ~= nil then return areaCache[questID] or nil end
+    local lib = _G.LibQuestieDB
+    local Quest = lib and lib.Quest
+    if not (Quest and Quest.Get) then return nil end -- not cached: QuestieDB may come later
+    local points = {}
+    local trigger = ns.Try(Quest.Get, questID, "triggerEnd")
+    if type(trigger) == "table" then ListSpawns(trigger[2], type(trigger[1]) == "string" and trigger[1] or nil, points, CAP) end
+    local objectives = ns.Try(Quest.Get, questID, "objectives")
+    local source = ns.Try(Quest.Get, questID, "sourceItemId")
+    if type(objectives) == "table" then
+        for _, row in ipairs(type(objectives[1]) == "table" and objectives[1] or {}) do
+            if type(row) == "table" and tonumber(row[1]) then AllSpawns("Npc", row[1], points, CAP) end
+        end
+        for _, row in ipairs(type(objectives[5]) == "table" and objectives[5] or {}) do
+            if type(row) == "table" then
+                if tonumber(row[2]) then AllSpawns("Npc", row[2], points, CAP) end
+                for _, id in ipairs(type(row[1]) == "table" and row[1] or {}) do AllSpawns("Npc", id, points, CAP) end
+            end
+        end
+        for _, row in ipairs(type(objectives[2]) == "table" and objectives[2] or {}) do
+            if type(row) == "table" and tonumber(row[1]) then AllSpawns("Object", row[1], points, CAP) end
+        end
+        local Item = lib.Item
+        for _, row in ipairs(type(objectives[3]) == "table" and objectives[3] or {}) do
+            local itemID = type(row) == "table" and tonumber(row[1])
+            -- the item the quest hands you (a letter to deliver) is no objective
+            if itemID and itemID ~= source and Item and Item.Get then
+                local npcs = ns.Try(Item.Get, itemID, "npcDrops")
+                for i, id in ipairs(type(npcs) == "table" and npcs or {}) do
+                    if i > 25 then break end
+                    AllSpawns("Npc", id, points, CAP)
+                end
+                local objects = ns.Try(Item.Get, itemID, "objectDrops")
+                for i, id in ipairs(type(objects) == "table" and objects or {}) do
+                    if i > 25 then break end
+                    AllSpawns("Object", id, points, CAP)
+                end
+            end
+        end
+    end
+    local extra = ns.Try(Quest.Get, questID, "extraObjectives")
+    for _, row in ipairs(type(extra) == "table" and extra or {}) do
+        if type(row) == "table" then ListSpawns(row[1], type(row[3]) == "string" and row[3] or nil, points, CAP) end
+    end
+
+    -- The map with the most spawns (an outdoor one if there is any), then
+    -- the spawn with the most others close by; the area is their middle.
+    local byMap, outdoor = {}, {}
+    for _, p in ipairs(points) do
+        local list = byMap[p[1]]
+        if not list then
+            list = {}
+            byMap[p[1]] = list
+            outdoor[p[1]] = OutdoorMap(p[1])
+        end
+        list[#list + 1] = p
+    end
+    local best
+    for mapID, list in pairs(byMap) do
+        local b = best and byMap[best]
+        if not best or (outdoor[mapID] and not outdoor[best])
+            or (outdoor[mapID] == outdoor[best] and (#list > #b or (#list == #b and mapID < best))) then
+            best = mapID
+        end
+    end
+    local list = best and byMap[best]
+    if not list then
+        areaCache[questID] = false
+        return nil
+    end
+    local r2 = RADIUS * RADIUS
+    local center, near
+    for _, p in ipairs(list) do
+        local count = 0
+        for _, o in ipairs(list) do
+            local dx, dy = p[2] - o[2], p[3] - o[3]
+            if dx * dx + dy * dy <= r2 then count = count + 1 end
+        end
+        if not near or count > near then center, near = p, count end
+    end
+    local sx, sy, n, names, seen = 0, 0, 0, {}, {}
+    for _, o in ipairs(list) do
+        local dx, dy = center[2] - o[2], center[3] - o[3]
+        if dx * dx + dy * dy <= r2 then
+            sx, sy, n = sx + o[2], sy + o[3], n + 1
+            if o[4] and not seen[o[4]] and #names < 3 then seen[o[4]] = true names[#names + 1] = o[4] end
+        end
+    end
+    local spot = { mapID = best, x = sx / n, y = sy / n, fromQuestie = true, area = true, markerType = "location",
+        label = "Quest area" .. (#names > 0 and (": " .. table.concat(names, ", ")) or "") }
+    if not ns.ValidSpot(spot) then spot = nil end
+    areaCache[questID] = spot or false
+    return spot
 end
 
 ------------------------------------------------------------------ distance

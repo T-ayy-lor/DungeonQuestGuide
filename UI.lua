@@ -183,6 +183,14 @@ local function Build()
     end)
     -- Closing the window keeps the guide (and its arrows) going.
     frame:SetScript("OnHide", function() if not frame.byCode then ns.CharDB().windowShown = nil end end)
+    -- The journal's arrow can go (right-clicked, arrived) without the guide
+    -- hearing of it: look once a second whether the note about it changed.
+    frame:SetScript("OnUpdate", function(self, elapsed)
+        self.noteWait = (self.noteWait or 1) - (elapsed or 0)
+        if self.noteWait > 0 then return end
+        self.noteWait = 1
+        if UI.view == "guide" and ns.Guide.ArrowStatus() ~= self.arrowNote then UI.Update() end
+    end)
     frame:Hide()
 
     -- The dungeon (or "Dungeons"), and a button to the other view.
@@ -338,15 +346,18 @@ function UI.Update()
     for _, h in ipairs(window.headings) do h:Hide() end
 
     local y, nRow, nHead = 0, 0, 0
-    local function Heading(text)
+    -- wrap: may run over several lines (a note, not a section heading)
+    local function Heading(text, wrap)
         nHead = nHead + 1
         local h = window.headings[nHead] or NewHeading(window.content)
         window.headings[nHead] = h
         h:ClearAllPoints()
         h:SetPoint("TOPLEFT", window.content, "TOPLEFT", 2, -y - 6)
+        h:SetWordWrap(wrap and true or false)
         h:SetText(text)
         h:Show()
-        y = y + HEADING_HEIGHT
+        local tall = wrap and (tonumber(h:GetStringHeight()) or 0) + 12 or 0
+        y = y + math.max(HEADING_HEIGHT, tall)
     end
     local function Row(item, title, detail, iconPath, current)
         nRow = nRow + 1
@@ -387,6 +398,11 @@ function UI.Update()
     local togo = plan.total - plan.doneCount - #plan.skipped
     window.summary:SetText(("%s%d|r of %d quests picked up or done%s"):format(togo == 0 and GREEN or GOLD,
         plan.doneCount, plan.total, (#plan.later > 0) and (" · " .. #plan.later .. " for later") or ""))
+
+    -- No arrow on the step: say why, at the top.
+    local note = ns.Guide.ArrowStatus()
+    window.arrowNote = note
+    if note then Heading("|cffff9933" .. note .. "|r", true) end
 
     local inside = ns.InInstance()
     if #plan.tasks > 0 then

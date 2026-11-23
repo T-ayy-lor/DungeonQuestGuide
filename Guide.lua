@@ -205,10 +205,58 @@ function Guide.Stop()
     if ns.UI then ns.UI.HideWindow() ns.UI.UpdateJournalButton() end
 end
 
--- Point at another step until it is done (a click on its row).
+-- Point at another step until it is done (a click on its row). A click on the
+-- step already pointed at brings back an arrow right-clicked away or reached.
 function Guide.Focus(task)
     Guide.focusKey = task and task.key or nil
+    local FDJ = ns.FDJ()
+    if FDJ and FDJ.ResetWaypointDone then ns.Try(FDJ.ResetWaypointDone, ns.SOURCE) end
+    ClearArrows()
     Guide.Refresh(true)
+end
+
+------------------------------------------------------------------ is there an arrow?
+
+-- The journal's own key for a followed spot (Systems/MapMarkers.lua), to tell
+-- "hidden by a right-click or on arrival" from anything else.
+local function JournalKey(task)
+    local spot = task.spot
+    return string.format("%s|%.4f|%.4f", tostring(spot.mapID), tonumber(spot.x) or 0, tonumber(spot.y) or 0)
+        .. (task.kind == "turnin" and "|in" or "|up") .. (spot.useItem and "|use" or "")
+end
+
+-- Why no arrow points at the step the guide is on; nil when one does (or when
+-- that's as it should be). For the window, so nobody is left wondering.
+function Guide.ArrowStatus()
+    local task = Guide.current
+    if not (Guide.Active() and task) then return nil end
+    if ns.InInstance() then return nil end -- the window says "When you're out again"
+    if not task.spot then return "This step has no map spot, so no arrow: its description says where to go." end
+    local db, FDJ = ns.DB(), ns.FDJ()
+    local tomtomLeads = db.tomtom and ns.HasTomTom()
+    local journalHas = FDJ and type(FDJ.FollowWaypoint) == "function"
+    if not (db.journalArrow and journalHas) then
+        if tomtomLeads then return nil end -- TomTom's arrow leads
+        if not journalHas then
+            return "No arrow: your Dungeon Journal has none (an old version?). Update it, or install TomTom."
+        end
+        return "No arrow: \"Journal arrow\" is unticked below."
+    end
+    if type(FDJ.WaypointArrowTarget) ~= "function" then return nil end -- can't tell
+    local _, source = ns.Try(FDJ.WaypointArrowTarget)
+    if source == ns.SOURCE or source == "corpse" then return nil end
+    if source == "manual" then
+        return "The journal's arrow is on a spot you showed on its map. Right-click that arrow to get the guide's back."
+    end
+    if source ~= nil then
+        return "The journal's arrow is following a quest chain you track in the journal. Right-click that arrow, or untrack the chain, to get the guide's back."
+    end
+    local char = _G.ForeverDungeonJournalCharacterDB
+    local done = type(char) == "table" and type(char.arrowDone) == "table" and char.arrowDone[ns.SOURCE]
+    if done == JournalKey(task) then
+        return "The arrow was hidden (right-clicked, or you got there). Click the step to bring it back."
+    end
+    return "The journal's arrow isn't showing. Click the step to try again."
 end
 
 function Guide.ToggleSkip(questID)
