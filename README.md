@@ -4,6 +4,8 @@ An addon for **World of Warcraft: Forever** that guides you step by step to ever
 
 ## Usage
 
+The guide is off whenever you log in: no arrow, pin or window until you pick a dungeon (or right-click the minimap button to carry on with the last one).
+
 Click the minimap button or type `/dqg` to open the dungeon list: every dungeon with quests for your character, by level, with its level range, its bosses' levels and how many quests you can take there. Click a dungeon to start its guide.
 
 The guide lists the steps in this order:

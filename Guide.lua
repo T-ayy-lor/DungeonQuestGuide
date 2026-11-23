@@ -97,11 +97,21 @@ local function PointAt(task)
     end
     if db.tomtom and ns.HasTomTom() then
         WatchTomTomArrow()
-        tomtomUID = ns.Try(_G.TomTom.AddWaypoint, _G.TomTom, spot.mapID, spot.x, spot.y, {
+        local TomTom = _G.TomTom
+        local opts = {
             title = task.title .. (label and label ~= task.title and ("\n" .. label) or ""),
             persistent = false, minimap = true, world = true, crazy = not JournalLeads(), silent = true,
             from = ns.SOURCE,
-        })
+        }
+        -- TomTom's own callbacks, but no tooltip on the minimap pin: a far
+        -- pin sits on the minimap's edge, and its tooltip popped up whenever
+        -- the mouse crossed it. The world map pin keeps its tooltip.
+        local callbacks = TomTom.DefaultCallbacks and ns.Try(TomTom.DefaultCallbacks, TomTom, opts)
+        if type(callbacks) == "table" and type(callbacks.minimap) == "table" then
+            callbacks.minimap.tooltip_show, callbacks.minimap.tooltip_update = nil, nil
+            opts.callbacks = callbacks
+        end
+        tomtomUID = ns.Try(TomTom.AddWaypoint, TomTom, spot.mapID, spot.x, spot.y, opts)
     end
 end
 
@@ -271,6 +281,7 @@ end
 ------------------------------------------------------------------ events
 
 local events = CreateFrame("Frame")
+Guide.eventFrame = events
 for _, event in ipairs({ "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "QUEST_ACCEPTED", "QUEST_TURNED_IN", "QUEST_REMOVED",
     "QUEST_LOG_UPDATE", "BAG_UPDATE_DELAYED", "PLAYER_LEVEL_UP", "ZONE_CHANGED_NEW_AREA" }) do
     pcall(events.RegisterEvent, events, event)
@@ -278,7 +289,12 @@ end
 events:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_LOGIN" then
         ns.DB()
-        ns.CharDB()
+        -- Off at every login and /reload: no arrow, pin or window until it's
+        -- turned on (a dungeon picked, or a right-click on the minimap button
+        -- to go on with the last one).
+        local char = ns.CharDB()
+        if char.active then char.lastActive = char.active end
+        char.active, char.windowShown = nil, nil
         if ns.UI then ns.UI.Init() end
     end
     if not Guide.Active() then return end
