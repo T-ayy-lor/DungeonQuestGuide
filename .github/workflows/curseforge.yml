@@ -1,19 +1,29 @@
 # When a release is published on GitHub, its zip goes to CurseForge too.
+# Run it by hand (Actions > Upload to CurseForge > Run workflow, or
+# `gh workflow run curseforge.yml -f tag=v0.2.0`) to upload a release that
+# is already out: its zip on GitHub is what goes up.
 name: Upload to CurseForge
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The release to upload (its tag, e.g. v0.2.0)"
+        required: true
 jobs:
   upload:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
       - uses: actions/checkout@v4
       - name: Build the zip (unzips to a DungeonQuestGuide folder) and attach it to the release
+        if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
           mkdir -p build/DungeonQuestGuide dist
@@ -21,10 +31,15 @@ jobs:
           rm -rf build/DungeonQuestGuide/.github build/DungeonQuestGuide/.gitattributes
           (cd build && zip -qr "../dist/DungeonQuestGuide-${TAG#v}.zip" DungeonQuestGuide)
           gh release upload "$TAG" dist/*.zip --repo "$GITHUB_REPOSITORY" --clobber
+      - name: Download the release's zip
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.zip' --dir dist
       - name: Upload to CurseForge
         env:
+          GH_TOKEN: ${{ github.token }}
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-          TAG: ${{ github.event.release.tag_name }}
           NOTES: ${{ github.event.release.body }}
           PRERELEASE: ${{ github.event.release.prerelease }}
           PROJECT: "1825320"
@@ -32,6 +47,10 @@ jobs:
           ADDON: "Dungeon Quest Guide"
         run: |
           set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            NOTES=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)
+            PRERELEASE=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease)
+          fi
           file=$(ls dist/*.zip | head -1)
           api=https://wow.curseforge.com/api
           # CurseForge wants the game version's id: look it up by its name.
