@@ -384,6 +384,7 @@ local function WorldPos(spot)
     if (x == nil or y == nil) and pos.GetXY then x, y = pos:GetXY() end
     return continent, x, y
 end
+ns.WorldPos = WorldPos
 
 -- Where the character stands, as a spot (nil inside instances and the like).
 function ns.PlayerSpot()

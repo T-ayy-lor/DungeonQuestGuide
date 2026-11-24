@@ -19,11 +19,11 @@ A chain that starts in another dungeon (an item another dungeon drops) is listed
 
 Within each part, the nearest step comes next. Everything at one quest giver is one step ("Hand in Tramping Paws, pick up Fire Taboo"), and whatever that giver, or anyone a few steps away in the same town, has for you is done on the same visit, even a dungeon quest that would otherwise come later. Steps tick themselves off as you pick quests up and hand them in. The Dungeon Journal's arrow leads to the step you're on, whether that's a quest giver or a quest area (where the mobs to kill or the things to collect are), and TomTom adds a map and minimap pin.
 
-In the step's own zone the Journal's arrow points straight at it (within 1,000 yards), not along the roads. From farther off or from another zone it finds the way there: roads, flights and boats.
+In the step's own zone the Journal's arrow points straight at it, not along the roads. Within 1,000 yards it points at the step itself; farther off in the same zone (up to 2,500 yards) it points at a spot a little ahead on the straight line that moves on as you walk, so the yards it shows count only to that spot. From another zone, or farther, it finds the way there: roads, flights and boats. In the three Stranglethorn ruins the Journal knows wall by wall (Zul'Kunda, Bal'lal, the Vile Reef coast) it keeps its own way round the walls.
 
-Once you're in a quest's area (among the mobs to kill or the things to collect), the arrow and the map pin go away, and they come back when you leave it. Click the step if you want the arrow there anyway.
+Once you're in a quest's area (among the mobs to kill or the things to collect), the arrow and the map pin go away, and they come back when you leave it. Click the step if you want the arrow there anyway. Flying over a quest area doesn't count.
 
-While you're dead, TomTom's corpse arrow leads you back, and the guide's arrow and pin are off until you're alive again (only when TomTom's "Automatically set a waypoint when I die" is on; otherwise the Journal's arrow takes you to your corpse).
+While you're dead and TomTom's arrow points at your corpse, the guide's arrow and pin are off until you're alive again. When TomTom sets no corpse arrow (its "Automatically set a waypoint when I die" is off, its arrow is hidden, or you died inside a dungeon), the guide's arrow stays and the Journal turns it into the way back to your corpse.
 
 If there's no arrow on the step, the window says why at the top (right-clicked away, you got there, another arrow in the journal, and so on).
 
