@@ -390,6 +390,18 @@ function ns.PlayerSpot()
     return ns.ValidSpot(spot) and spot or nil
 end
 
+-- Yards in a straight line between two spots on one continent (from = nil:
+-- from the character); nil when it can't be told.
+function ns.Yards(from, to)
+    from = from or ns.PlayerSpot()
+    if not (from and to) then return nil end
+    local c1, x1, y1 = WorldPos(from)
+    local c2, x2, y2 = WorldPos(to)
+    if not (c1 and c2 and c1 == c2 and x1 and x2 and y1 and y2) then return nil end
+    local dx, dy = x1 - x2, y1 - y2
+    return math.sqrt(dx * dx + dy * dy)
+end
+
 local FAR = 1e7
 ns.FAR = FAR
 -- Yards from one spot to another (from = nil: from the character). The

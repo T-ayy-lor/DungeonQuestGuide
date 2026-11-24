@@ -75,11 +75,27 @@ local function ClearArrows()
 end
 Guide.ClearArrows = ClearArrows
 
+-- Close to the step, the journal's arrow goes straight there. On a road it
+-- always follows the road (its "roadnet" rule), so Rethiel the Greenwarden,
+-- 140 yards off the Wetlands road, was 480 yards back along it. A spot it is
+-- told is swum to (its "swim" flag) is the one way to have it go straight:
+-- set within NEAR yards, cleared past FAR (so it doesn't flicker between).
+Guide.STRAIGHT_NEAR, Guide.STRAIGHT_FAR = 250, 300
+local straight = false
+local function Straight(spot)
+    if not spot or ns.InInstance() then return false end
+    local yards = ns.Yards(nil, spot)
+    if not yards then return false end
+    if straight then return yards <= Guide.STRAIGHT_FAR end
+    return yards <= Guide.STRAIGHT_NEAR
+end
+
 local function PointAt(task)
     local spot = task and task.spot
     local key
     if spot and not ns.InInstance() then
-        key = task.key .. "@" .. spot.mapID .. ":" .. spot.x .. ":" .. spot.y
+        straight = Straight(spot)
+        key = task.key .. "@" .. spot.mapID .. ":" .. spot.x .. ":" .. spot.y .. (straight and "|straight" or "")
     end
     if key == pointedKey then return end
     ClearArrows()
@@ -92,6 +108,7 @@ local function PointAt(task)
         local copy = {}
         for k, v in pairs(spot) do copy[k] = v end
         copy.label = label
+        copy.swim = straight or nil
         ns.Try(FDJ.FollowWaypoint, ns.SOURCE, copy, task.questName, task.kind == "turnin", nil,
             task.kind == "objective" or task.kind == "entrance" or task.kind == "item")
     end
@@ -113,6 +130,15 @@ local function PointAt(task)
         end
         tomtomUID = ns.Try(TomTom.AddWaypoint, TomTom, spot.mapID, spot.x, spot.y, opts)
     end
+end
+
+-- Once a second: coming within reach of the step (or going away again)
+-- points the journal's arrow again, straight or along the roads. The
+-- journal remembers a hidden arrow by its spot, so this never brings one back.
+function Guide.CheckStraight()
+    local task = Guide.current
+    if not (Guide.Active() and task and task.spot) or ns.InInstance() then return end
+    if Straight(task.spot) ~= straight then PointAt(task) end
 end
 
 -- Settings changed: point again.
@@ -291,6 +317,13 @@ for _, event in ipairs({ "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "QUEST_ACCEPTE
     "QUEST_LOG_UPDATE", "BAG_UPDATE_DELAYED", "PLAYER_LEVEL_UP", "ZONE_CHANGED_NEW_AREA" }) do
     pcall(events.RegisterEvent, events, event)
 end
+local wait = 1
+events:SetScript("OnUpdate", function(_, elapsed)
+    wait = wait - (elapsed or 0)
+    if wait > 0 then return end
+    wait = 1
+    Guide.CheckStraight()
+end)
 events:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_LOGIN" then
         ns.DB()

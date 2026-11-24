@@ -19,6 +19,8 @@ A chain that starts in another dungeon (an item another dungeon drops) is listed
 
 Within each part, the nearest step comes next. Everything at one quest giver is one step ("Hand in Tramping Paws, pick up Fire Taboo"), and whatever that giver, or anyone a few steps away in the same town, has for you is done on the same visit, even a dungeon quest that would otherwise come later. Steps tick themselves off as you pick quests up and hand them in. The Dungeon Journal's arrow leads to the step you're on, whether that's a quest giver or a quest area (where the mobs to kill or the things to collect are), and TomTom adds a map and minimap pin.
 
+Within about 250 yards of a step the Journal's arrow points straight at it, even from a road (farther off it follows the roads).
+
 If there's no arrow on the step, the window says why at the top (right-clicked away, you got there, another arrow in the journal, and so on).
 
 - Click a step to point the arrow at it instead, or to bring back an arrow you hid.
