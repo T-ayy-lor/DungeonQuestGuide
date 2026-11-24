@@ -90,10 +90,29 @@ local function Straight(spot)
     return yards <= Guide.STRAIGHT_NEAR
 end
 
+-- In the quest area of a "Do:" step (within IN yards of any of its mobs,
+-- objects or drop spots), no arrow: the area's spot is only the middle of
+-- its thickest cluster, which pointed 600 yards off with the gnolls all
+-- round. Out again past OUT yards from all of them, the arrow is back. A
+-- click on the step brings it back there too (Guide.Focus).
+Guide.AREA_IN, Guide.AREA_OUT = 200, 300
+Guide.inArea = false
+local arrowWanted -- the step a click asked an arrow for, quest area or not
+local function InArea(task)
+    if not (task and task.kind == "objective" and task.spot) or ns.InInstance() then return false end
+    if arrowWanted == task.key then return false end
+    local points = task.spot.area and ns.QuestieAreaPoints(task.questID)
+    local yards
+    if points then yards = ns.NearestYards(points) else yards = ns.Yards(nil, task.spot) end
+    if not yards then return false end
+    return yards <= (Guide.inArea and Guide.AREA_OUT or Guide.AREA_IN)
+end
+
 local function PointAt(task)
     local spot = task and task.spot
     local key
-    if spot and not ns.InInstance() then
+    Guide.inArea = InArea(task)
+    if spot and not ns.InInstance() and not Guide.inArea then
         straight = Straight(spot)
         key = task.key .. "@" .. spot.mapID .. ":" .. spot.x .. ":" .. spot.y .. (straight and "|straight" or "")
     end
@@ -133,12 +152,18 @@ local function PointAt(task)
 end
 
 -- Once a second: coming within reach of the step (or going away again)
--- points the journal's arrow again, straight or along the roads. The
+-- points the journal's arrow again, straight or along the roads; coming into
+-- a quest area (or leaving it) takes the arrow away (or brings it back). The
 -- journal remembers a hidden arrow by its spot, so this never brings one back.
-function Guide.CheckStraight()
+function Guide.CheckArrow()
     local task = Guide.current
     if not (Guide.Active() and task and task.spot) or ns.InInstance() then return end
-    if Straight(task.spot) ~= straight then PointAt(task) end
+    if InArea(task) ~= Guide.inArea then
+        PointAt(task)
+        if ns.UI then ns.UI.Update() end
+    elseif not Guide.inArea and Straight(task.spot) ~= straight then
+        PointAt(task)
+    end
 end
 
 -- Settings changed: point again.
@@ -225,6 +250,7 @@ end
 function Guide.Start(dungeon)
     local FDJ = ns.FDJ()
     if not (dungeon and FDJ and FDJ.DB and FDJ.DB[dungeon]) then return end
+    arrowWanted = nil
     local char = ns.CharDB()
     char.active = dungeon
     char.lastActive = dungeon -- for the minimap button's right-click (back on)
@@ -241,6 +267,7 @@ end
 function Guide.Stop()
     local char = ns.CharDB()
     char.active = nil
+    arrowWanted, Guide.inArea = nil, false
     char.windowShown = nil
     Guide.plan, Guide.current, Guide.focusKey = nil, nil, nil
     ClearArrows()
@@ -251,6 +278,7 @@ end
 -- step already pointed at brings back an arrow right-clicked away or reached.
 function Guide.Focus(task)
     Guide.focusKey = task and task.key or nil
+    arrowWanted = task and task.key or nil
     local FDJ = ns.FDJ()
     if FDJ and FDJ.ResetWaypointDone then ns.Try(FDJ.ResetWaypointDone, ns.SOURCE) end
     ClearArrows()
@@ -274,6 +302,7 @@ function Guide.ArrowStatus()
     if not (Guide.Active() and task) then return nil end
     if ns.InInstance() then return nil end -- the window says "When you're out again"
     if not task.spot then return "This step has no map spot, so no arrow: its description says where to go." end
+    if Guide.inArea then return "You're in the quest area, so no arrow. Click the step if you want one." end
     local db, FDJ = ns.DB(), ns.FDJ()
     local tomtomLeads = db.tomtom and ns.HasTomTom()
     local journalHas = FDJ and type(FDJ.FollowWaypoint) == "function"
@@ -322,7 +351,7 @@ events:SetScript("OnUpdate", function(_, elapsed)
     wait = wait - (elapsed or 0)
     if wait > 0 then return end
     wait = 1
-    Guide.CheckStraight()
+    Guide.CheckArrow()
 end)
 events:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_LOGIN" then

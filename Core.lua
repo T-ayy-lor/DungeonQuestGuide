@@ -268,7 +268,7 @@ end
 -- where its items drop, the place to explore): the thickest cluster of their
 -- spawns, as a journal-style spot. nil when QuestieDB has none.
 local CAP, RADIUS = 600, 0.06
-local areaCache = {}
+local areaCache, areaPoints = {}, {}
 function ns.QuestieAreaSpot(questID)
     if not questID then return nil end
     if areaCache[questID] ~= nil then return areaCache[questID] or nil end
@@ -341,6 +341,7 @@ function ns.QuestieAreaSpot(questID)
         areaCache[questID] = false
         return nil
     end
+    areaPoints[questID] = list
     local r2 = RADIUS * RADIUS
     local center, near
     for _, p in ipairs(list) do
@@ -364,6 +365,13 @@ function ns.QuestieAreaSpot(questID)
     if not ns.ValidSpot(spot) then spot = nil end
     areaCache[questID] = spot or false
     return spot
+end
+
+-- Every spawn on the quest area's map ({ mapID, x, y, name }), nil when
+-- QuestieDB has none.
+function ns.QuestieAreaPoints(questID)
+    if not ns.QuestieAreaSpot(questID) then return nil end
+    return areaPoints[questID]
 end
 
 ------------------------------------------------------------------ distance
@@ -400,6 +408,28 @@ function ns.Yards(from, to)
     if not (c1 and c2 and c1 == c2 and x1 and x2 and y1 and y2) then return nil end
     local dx, dy = x1 - x2, y1 - y2
     return math.sqrt(dx * dx + dy * dy)
+end
+
+-- Yards from the character to the nearest of these points ({ mapID, x, y }),
+-- nil when it can't be told. Their world positions are kept on them.
+function ns.NearestYards(points)
+    local me = ns.PlayerSpot()
+    local c, px, py
+    if me then c, px, py = WorldPos(me) end
+    if not (c and px and py) then return nil end
+    local best
+    for _, p in ipairs(points) do
+        if p.wc == nil then
+            local wc, wx, wy = WorldPos({ mapID = p[1], x = p[2], y = p[3] })
+            p.wc, p.wx, p.wy = (wc and wx and wy) and wc or false, wx, wy
+        end
+        if p.wc == c then
+            local dx, dy = p.wx - px, p.wy - py
+            local d = math.sqrt(dx * dx + dy * dy)
+            if not best or d < best then best = d end
+        end
+    end
+    return best
 end
 
 local FAR = 1e7

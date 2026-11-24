@@ -21,6 +21,8 @@ Within each part, the nearest step comes next. Everything at one quest giver is 
 
 Within about 250 yards of a step the Journal's arrow points straight at it, even from a road (farther off it follows the roads).
 
+Once you're in a quest's area (among the mobs to kill or the things to collect), the arrow and the map pin go away, and they come back when you leave it. Click the step if you want the arrow there anyway.
+
 If there's no arrow on the step, the window says why at the top (right-clicked away, you got there, another arrow in the journal, and so on).
 
 - Click a step to point the arrow at it instead, or to bring back an arrow you hid.
