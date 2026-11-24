@@ -75,21 +75,13 @@ local function ClearArrows()
 end
 Guide.ClearArrows = ClearArrows
 
--- Close to the step, the journal's arrow goes straight there. On a road it
--- always follows the road (its "roadnet" rule), so Rethiel the Greenwarden,
--- 140 yards off the Wetlands road, was 480 yards back along it. A spot it is
--- told is swum to (its "swim" flag) is the one way to have it go straight:
--- set within NEAR yards, cleared past FAR (so it doesn't flicker between).
-Guide.STRAIGHT_NEAR, Guide.STRAIGHT_FAR = 250, 300
-local straight = false
-local function Straight(spot)
-    if not spot or ns.InInstance() then return false end
-    local yards = ns.Yards(nil, spot)
-    if not yards then return false end
-    if straight then return yards <= Guide.STRAIGHT_FAR end
-    return yards <= Guide.STRAIGHT_NEAR
-end
-
+-- The journal's arrow goes straight to the step, never along its roads (the
+-- user, 480 yards from a hand-in with the arrow 751 yards round by the road:
+-- "i dont want it to direct to road. direct to quest turn in"). A spot the
+-- journal is told is swum to (its "swim" flag, Way.SwimStraight) is the one
+-- way to have that: it then walks the straight line whenever the character
+-- is in the spot's zone and within 1,000 yards. Farther off, or from another
+-- zone, the journal still finds the way (roads, flights, boats).
 -- In the quest area of a "Do:" step (within IN yards of any of its mobs,
 -- objects or drop spots), no arrow: the area's spot is only the middle of
 -- its thickest cluster, which pointed 600 yards off with the gnolls all
@@ -113,8 +105,7 @@ local function PointAt(task)
     local key
     Guide.inArea = InArea(task)
     if spot and not ns.InInstance() and not Guide.inArea then
-        straight = Straight(spot)
-        key = task.key .. "@" .. spot.mapID .. ":" .. spot.x .. ":" .. spot.y .. (straight and "|straight" or "")
+        key = task.key .. "@" .. spot.mapID .. ":" .. spot.x .. ":" .. spot.y
     end
     if key == pointedKey then return end
     ClearArrows()
@@ -127,7 +118,7 @@ local function PointAt(task)
         local copy = {}
         for k, v in pairs(spot) do copy[k] = v end
         copy.label = label
-        copy.swim = straight or nil
+        copy.swim = true -- straight there (see above)
         ns.Try(FDJ.FollowWaypoint, ns.SOURCE, copy, task.questName, task.kind == "turnin", nil,
             task.kind == "objective" or task.kind == "entrance" or task.kind == "item")
     end
@@ -151,18 +142,15 @@ local function PointAt(task)
     end
 end
 
--- Once a second: coming within reach of the step (or going away again)
--- points the journal's arrow again, straight or along the roads; coming into
--- a quest area (or leaving it) takes the arrow away (or brings it back). The
--- journal remembers a hidden arrow by its spot, so this never brings one back.
+-- Once a second: coming into a quest area (or leaving it) takes the arrow
+-- away (or brings it back). The journal remembers a hidden arrow by its
+-- spot, so this never brings one back.
 function Guide.CheckArrow()
     local task = Guide.current
     if not (Guide.Active() and task and task.spot) or ns.InInstance() then return end
     if InArea(task) ~= Guide.inArea then
         PointAt(task)
         if ns.UI then ns.UI.Update() end
-    elseif not Guide.inArea and Straight(task.spot) ~= straight then
-        PointAt(task)
     end
 end
 
