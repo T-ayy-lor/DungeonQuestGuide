@@ -43,6 +43,14 @@ local function JournalLeads()
     return ns.DB().journalArrow and FDJ and FDJ.FollowWaypoint and true or false
 end
 
+-- The journal's own key for a followed spot (Systems/MapMarkers.lua), to tell
+-- "hidden by a right-click or on arrival" from anything else.
+local function JournalKey(task)
+    local spot = task.spot
+    return string.format("%s|%.4f|%.4f", tostring(spot.mapID), tonumber(spot.x) or 0, tonumber(spot.y) or 0)
+        .. (task.kind == "turnin" and "|in" or "|up") .. (spot.useItem and "|use" or "")
+end
+
 -- TomTom can still move its arrow onto the pin by itself ("set to next
 -- closest waypoint"): take it off again. The user's own waypoints are left
 -- alone.
@@ -65,6 +73,29 @@ local function WatchTomTomArrow()
         if C_Timer and C_Timer.After then C_Timer.After(0, Off) else Off() end
     end)
 end
+
+-- Dead, TomTom's corpse arrow leads ("Automatically set a waypoint when I
+-- die", on unless unticked): the guide's arrow and pin go until alive again.
+-- Left up, the journal's arrow on the guide's step turned into its own
+-- "Your corpse" arrow right under TomTom's (the user, 2026-11-23: "the tom
+-- tom corpse waypoint should take prio ... just turn dungeon quest off while
+-- dead and then back on on revive"). Without TomTom's corpse arrow the
+-- guide's stays: the journal's "Your corpse" is then the only way back.
+local function TomTomCorpseArrow()
+    if not ns.HasTomTom() then return false end
+    local db = _G.TomTom.db
+    local general = type(db) == "table" and type(db.profile) == "table" and db.profile.general
+    if type(general) ~= "table" then return true end -- (TomTom's default: on)
+    return general.corpse_arrow ~= false
+end
+local function Dead()
+    if type(UnitIsDeadOrGhost) ~= "function" then return false end
+    local ok, dead = pcall(UnitIsDeadOrGhost, "player")
+    if not ok or (type(issecretvalue) == "function" and issecretvalue(dead)) then return false end
+    return dead == true
+end
+Guide.deadOff = false
+local function DeadOff() return Dead() and TomTomCorpseArrow() end
 Guide.WatchTomTomArrow = WatchTomTomArrow
 
 local function ClearArrows()
@@ -104,7 +135,8 @@ local function PointAt(task)
     local spot = task and task.spot
     local key
     Guide.inArea = InArea(task)
-    if spot and not ns.InInstance() and not Guide.inArea then
+    Guide.deadOff = DeadOff()
+    if spot and not ns.InInstance() and not Guide.inArea and not Guide.deadOff then
         key = task.key .. "@" .. spot.mapID .. ":" .. spot.x .. ":" .. spot.y
     end
     if key == pointedKey then return end
@@ -148,7 +180,7 @@ end
 function Guide.CheckArrow()
     local task = Guide.current
     if not (Guide.Active() and task and task.spot) or ns.InInstance() then return end
-    if InArea(task) ~= Guide.inArea then
+    if InArea(task) ~= Guide.inArea or DeadOff() ~= Guide.deadOff then
         PointAt(task)
         if ns.UI then ns.UI.Update() end
     end
@@ -275,14 +307,6 @@ end
 
 ------------------------------------------------------------------ is there an arrow?
 
--- The journal's own key for a followed spot (Systems/MapMarkers.lua), to tell
--- "hidden by a right-click or on arrival" from anything else.
-local function JournalKey(task)
-    local spot = task.spot
-    return string.format("%s|%.4f|%.4f", tostring(spot.mapID), tonumber(spot.x) or 0, tonumber(spot.y) or 0)
-        .. (task.kind == "turnin" and "|in" or "|up") .. (spot.useItem and "|use" or "")
-end
-
 -- Why no arrow points at the step the guide is on; nil when one does (or when
 -- that's as it should be). For the window, so nobody is left wondering.
 function Guide.ArrowStatus()
@@ -290,6 +314,7 @@ function Guide.ArrowStatus()
     if not (Guide.Active() and task) then return nil end
     if ns.InInstance() then return nil end -- the window says "When you're out again"
     if not task.spot then return "This step has no map spot, so no arrow: its description says where to go." end
+    if Guide.deadOff then return "You're dead: TomTom's arrow leads to your corpse. The guide's arrow is back once you're alive." end
     if Guide.inArea then return "You're in the quest area, so no arrow. Click the step if you want one." end
     local db, FDJ = ns.DB(), ns.FDJ()
     local tomtomLeads = db.tomtom and ns.HasTomTom()
@@ -331,7 +356,8 @@ end
 local events = CreateFrame("Frame")
 Guide.eventFrame = events
 for _, event in ipairs({ "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "QUEST_ACCEPTED", "QUEST_TURNED_IN", "QUEST_REMOVED",
-    "QUEST_LOG_UPDATE", "BAG_UPDATE_DELAYED", "PLAYER_LEVEL_UP", "ZONE_CHANGED_NEW_AREA" }) do
+    "QUEST_LOG_UPDATE", "BAG_UPDATE_DELAYED", "PLAYER_LEVEL_UP", "ZONE_CHANGED_NEW_AREA",
+    "PLAYER_DEAD", "PLAYER_ALIVE", "PLAYER_UNGHOST" }) do
     pcall(events.RegisterEvent, events, event)
 end
 local wait = 1
@@ -358,6 +384,10 @@ events:SetScript("OnEvent", function(_, event)
         if C_Timer and C_Timer.After then
             C_Timer.After(3, function() Guide.Refresh(true) end)
         end
+        return
+    end
+    if event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" or event == "PLAYER_UNGHOST" then
+        Guide.CheckArrow() -- dead: TomTom's corpse arrow leads; alive: the guide's is back
         return
     end
     if event == "ZONE_CHANGED_NEW_AREA" then ns.ClearCostCache() end

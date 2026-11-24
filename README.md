@@ -23,6 +23,8 @@ In the step's own zone the Journal's arrow points straight at it (within 1,000 y
 
 Once you're in a quest's area (among the mobs to kill or the things to collect), the arrow and the map pin go away, and they come back when you leave it. Click the step if you want the arrow there anyway.
 
+While you're dead, TomTom's corpse arrow leads you back, and the guide's arrow and pin are off until you're alive again (only when TomTom's "Automatically set a waypoint when I die" is on; otherwise the Journal's arrow takes you to your corpse).
+
 If there's no arrow on the step, the window says why at the top (right-clicked away, you got there, another arrow in the journal, and so on).
 
 - Click a step to point the arrow at it instead, or to bring back an arrow you hid.
