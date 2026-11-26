@@ -12,3 +12,4 @@ Core.lua
 Plan.lua
 Guide.lua
 UI.lua
+PinGuard.lua
